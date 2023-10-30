@@ -9,8 +9,6 @@ import searchengine.config.UserAgent;
 import searchengine.dto.indexing.IndexingResponse;
 import searchengine.model.SiteModel;
 import searchengine.model.SiteStatus;
-import searchengine.repositories.PageRepository;
-import searchengine.repositories.SiteRepository;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -23,8 +21,7 @@ import java.util.concurrent.ForkJoinPool;
 @RequiredArgsConstructor
 public class IndexingServiceImpl implements IndexingService{
     private final SitesList sites;
-    private final SiteRepository siteRepository;
-    private final PageRepository pageRepository;
+    private final RepositoryService repos;
     private final UserAgent userAgent;
 
     private ExecutorService executorService;
@@ -51,26 +48,26 @@ public class IndexingServiceImpl implements IndexingService{
         for (Site site : sites.getSites()) {
             String url = site.getUrl();
 
-            pageRepository.clearData(url);
-            siteRepository.clearData(url);
+            repos.getPageRepository().clearData(url);
+            repos.getSiteRepository().clearData(url);
 
             SiteModel siteModel = new SiteModel();
             siteModel.setUrl(url);
             siteModel.setName(site.getName());
             siteModel.setStatus(SiteStatus.INDEXING);
             siteModel.setStatusTime(new Date());
-            siteRepository.saveAndFlush(siteModel);
+            repos.getSiteRepository().saveAndFlush(siteModel);
             siteModelList.add(siteModel);
 
-            PageData pageData = new PageData(siteModel, url, siteRepository, pageRepository, userAgent);
+            PageData pageData = new PageData(siteModel, url, repos, userAgent);
             Runnable siteIndexing = () -> {
                 if (pageData.pageIndexing()) {
                     forkJoinPool.invoke(new PageDataRecursiveTask(pageData));
                 }
 
-                if (siteModel.getStatus() == SiteStatus.INDEXING) {
+                if (siteModel.getStatus() != SiteStatus.FAILED) {
                     siteModel.setStatus(SiteStatus.INDEXED);
-                    siteRepository.saveAndFlush(siteModel);
+                    repos.getSiteRepository().saveAndFlush(siteModel);
                 }
             };
             executorService.execute(siteIndexing);
@@ -98,7 +95,7 @@ public class IndexingServiceImpl implements IndexingService{
             if (siteModel.getStatus() == SiteStatus.INDEXING) {
                 siteModel.setStatus(SiteStatus.FAILED);
                 siteModel.setLastError("Индексация остановлена пользователем");
-                siteRepository.saveAndFlush(siteModel);
+                repos.getSiteRepository().saveAndFlush(siteModel);
             }
         }
 

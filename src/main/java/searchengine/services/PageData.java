@@ -9,8 +9,6 @@ import searchengine.config.UserAgent;
 import searchengine.model.PageModel;
 import searchengine.model.SiteModel;
 import searchengine.model.SiteStatus;
-import searchengine.repositories.PageRepository;
-import searchengine.repositories.SiteRepository;
 
 import java.io.IOException;
 import java.util.*;
@@ -22,20 +20,17 @@ public class PageData {
 
     private final SiteModel siteModel;
     private final String pageLink;
-    private final SiteRepository siteRepository;
-    private final PageRepository pageRepository;
+    private final RepositoryService repos;
     private final UserAgent userAgent;
     private final String mainPage;
     private final Set<PageData> pageChildren;
 
     private Document document;
 
-    public PageData(SiteModel siteModel, String pageLink, SiteRepository siteRepository,
-                    PageRepository pageRepository, UserAgent userAgent) {
+    public PageData(SiteModel siteModel, String pageLink,  RepositoryService repos, UserAgent userAgent) {
         this.siteModel = siteModel;
         this.pageLink = pageLink;
-        this.siteRepository = siteRepository;
-        this.pageRepository = pageRepository;
+        this.repos = repos;
         this.userAgent = userAgent;
         mainPage = siteModel.getUrl();
         pageChildren = new HashSet<>();
@@ -55,7 +50,8 @@ public class PageData {
             pageModel.setPath(getRelLink(pageLink));
             pageModel.setCode(responseCode);
             pageModel.setContent(document.toString());
-            pageRepository.saveAndFlush(pageModel);
+
+            repos.getPageRepository().saveAndFlush(pageModel);
             isAvailable = true;
         } catch (IOException e) {
             System.out.printf("%s: Connection error: %s\n", this.getClass().getSimpleName(), e.getMessage());
@@ -64,7 +60,7 @@ public class PageData {
             isAvailable = false;
         } finally {
             siteModel.setStatusTime(new Date());
-            siteRepository.saveAndFlush(siteModel);
+            repos.getSiteRepository().saveAndFlush(siteModel);
         }
         return isAvailable;
     }
@@ -78,8 +74,7 @@ public class PageData {
         for (Element link : links) {
             String absLink = link.attr("abs:href");
             if (isValidLink(absLink)) {
-                PageData pageChild = new PageData(siteModel, absLink,
-                        siteRepository, pageRepository, userAgent);
+                PageData pageChild = new PageData(siteModel, absLink, repos, userAgent);
                 pageChild.pageIndexing();
                 pageChildren.add(pageChild);
             }
@@ -90,7 +85,7 @@ public class PageData {
     private boolean isValidLink(String absLink) {
         if (absLink.startsWith(pageLink) && !PATTERN_FILE.matcher(absLink).find()
                 && !PATTERN_ANCHOR.matcher(absLink).find()) {
-            return pageRepository.findPage(mainPage, getRelLink(absLink)).isEmpty();
+            return repos.getPageRepository().findPage(mainPage, getRelLink(absLink)).isEmpty();
         }
         return false;
     }
