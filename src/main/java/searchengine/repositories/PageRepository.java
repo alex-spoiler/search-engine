@@ -19,4 +19,9 @@ public interface PageRepository extends JpaRepository<PageModel, Integer> {
     @Query(value = "SELECT * FROM page AS p JOIN site AS s ON p.site_id = s.id " +
             "WHERE url = :url AND path = :path", nativeQuery = true)
     List<PageModel> findPage(String url, String path);
+
+    @Modifying
+    @Query(value = "DELETE p FROM page AS p JOIN site AS s ON p.site_id = s.id " +
+            "WHERE url = :url AND path = :path", nativeQuery = true)
+    void deletePage(String url, String path);
 }

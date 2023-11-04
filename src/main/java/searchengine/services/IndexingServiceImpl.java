@@ -103,4 +103,75 @@ public class IndexingServiceImpl implements IndexingService{
         response.setError("");
         return response;
     }
+
+    @Override
+    @Transactional
+    public IndexingResponse indexPage(String url) {
+        IndexingResponse response = new IndexingResponse();
+
+        if (url.isBlank()) {
+            response.setResult(false);
+            response.setError("Укажите страницу сайта, которую нужно обновить или добавить");
+            return response;
+        }
+
+        if (!isCorrectPage(url)) {
+            response.setResult(false);
+            response.setError("Данная страница находится за пределами сайтов, указанных в конфигурационном файле");
+            return response;
+        }
+
+        SiteModel siteModel = getSiteModel(url);
+        String path = url.substring(siteModel.getUrl().length());
+        PageData pageData = new PageData(siteModel, url, repos, userAgent);
+
+        if (!repos.getPageRepository().findPage(siteModel.getUrl(), path).isEmpty()) {
+            repos.getPageRepository().deletePage(siteModel.getUrl(), path);
+            //todo: +delete index
+            //todo: +delete lemma
+        }
+
+        if (pageData.pageIndexing()) {
+            response.setResult(true);
+            response.setError("");
+        } else {
+            response.setResult(false);
+            response.setError("Данная страница не доступна");
+        }
+
+        return response;
+    }
+
+    private SiteModel getSiteModel(String url) {
+        SiteModel siteModel = new SiteModel();
+        String mainPage = null;
+        String name = null;
+        for (Site site : sites.getSites()) {
+            if (url.startsWith(site.getUrl())) {
+                mainPage = site.getUrl();
+                name = site.getName();
+                break;
+            }
+        }
+
+        if (repos.getSiteRepository().findSite(mainPage).isEmpty()) {
+            siteModel.setUrl(mainPage);
+            siteModel.setName(name);
+            siteModel.setStatus(SiteStatus.INDEXING);
+            siteModel.setStatusTime(new Date());
+            repos.getSiteRepository().saveAndFlush(siteModel);
+        } else {
+            siteModel = repos.getSiteRepository().findSite(mainPage).get(0);
+        }
+        return siteModel;
+    }
+
+    private boolean isCorrectPage(String url) {
+        for (Site site : sites.getSites()) {
+            if (url.startsWith(site.getUrl())) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
