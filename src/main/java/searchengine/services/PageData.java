@@ -6,9 +6,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import searchengine.config.UserAgent;
-import searchengine.model.PageModel;
-import searchengine.model.SiteModel;
-import searchengine.model.SiteStatus;
+import searchengine.model.*;
 
 import java.io.IOException;
 import java.util.*;
@@ -26,8 +24,10 @@ public class PageData {
     private final Set<PageData> pageChildren;
 
     private Document document;
+    private int responseCode;
+    private boolean isAvailable;
 
-    public PageData(SiteModel siteModel, String pageLink,  RepositoryService repos, UserAgent userAgent) {
+    public PageData(SiteModel siteModel, String pageLink, RepositoryService repos, UserAgent userAgent) {
         this.siteModel = siteModel;
         this.pageLink = pageLink;
         this.repos = repos;
@@ -36,22 +36,13 @@ public class PageData {
         pageChildren = new HashSet<>();
     }
 
-    public boolean pageIndexing() {
-        boolean isAvailable;
+    public boolean connecting() {
         try {
             Connection.Response response = Jsoup.connect(pageLink)
                     .userAgent(userAgent.getUserAgent()).referrer(userAgent.getReferrer())
                     .ignoreHttpErrors(true).ignoreContentType(true).execute();
-            int responseCode = response.statusCode();
+            responseCode = response.statusCode();
             document = response.parse();
-
-            PageModel pageModel = new PageModel();
-            pageModel.setSite(siteModel);
-            pageModel.setPath(getRelLink(pageLink));
-            pageModel.setCode(responseCode);
-            pageModel.setContent(document.toString());
-
-            repos.getPageRepository().saveAndFlush(pageModel);
             isAvailable = true;
         } catch (IOException e) {
             System.out.printf("%s: Connection error: %s\n", this.getClass().getSimpleName(), e.getMessage());
@@ -65,6 +56,20 @@ public class PageData {
         return isAvailable;
     }
 
+    public void pageIndexing() {
+        if (isAvailable) {
+            repos.getPageRepository().saveAndFlush(getPageModel());
+
+            if (responseCode < 400) {
+                HashMap<String, Integer> lemmas = LemmaFinder.getInstance().getLemmasCollection(document.text());
+                writeLemmas(lemmas);
+                writeIndexes(lemmas);
+            }
+        } else {
+            System.out.printf("%s: Connection error", this.getClass().getSimpleName());
+        }
+    }
+
     public Collection<PageData> getChildren() {
         if (document == null) {
             return Collections.emptyList();
@@ -75,7 +80,9 @@ public class PageData {
             String absLink = link.attr("abs:href");
             if (isValidLink(absLink)) {
                 PageData pageChild = new PageData(siteModel, absLink, repos, userAgent);
-                pageChild.pageIndexing();
+                if (pageChild.connecting()) {
+                    pageIndexing();
+                }
                 pageChildren.add(pageChild);
             }
         }
@@ -92,5 +99,41 @@ public class PageData {
 
     private String getRelLink(String absLink) {
         return absLink.equals(mainPage) ? "/" : absLink.substring(mainPage.length());
+    }
+
+    private PageModel getPageModel() {
+        PageModel pageModel = new PageModel();
+        pageModel.setSite(siteModel);
+        pageModel.setPath(getRelLink(pageLink));
+        pageModel.setCode(responseCode);
+        pageModel.setContent(document.toString());
+        return pageModel;
+    }
+
+    private void writeLemmas(HashMap<String, Integer> lemmas) {
+        for (String lemma : lemmas.keySet()) {
+            LemmaModel lemmaModel;
+            if (repos.getLemmaRepository().findLemma(lemma, siteModel.getUrl()).isEmpty()) {
+                lemmaModel = new LemmaModel();
+                lemmaModel.setLemma(lemma);
+                lemmaModel.setSite(siteModel);
+                lemmaModel.setFrequency(1);
+            } else {
+                lemmaModel = repos.getLemmaRepository().findLemma(lemma, siteModel.getUrl()).get(0);
+                lemmaModel.setFrequency(lemmaModel.getFrequency() + 1);
+            }
+
+            repos.getLemmaRepository().saveAndFlush(lemmaModel);
+        }
+    }
+
+    private void writeIndexes(HashMap<String, Integer> lemmas) {
+        for (String lemma : lemmas.keySet()) {
+            IndexModel indexModel = new IndexModel();
+            indexModel.setPage(repos.getPageRepository().findPage(mainPage, getRelLink(pageLink)).get(0));
+            indexModel.setLemma(repos.getLemmaRepository().findLemma(lemma, siteModel.getUrl()).get(0));
+            indexModel.setRank(lemmas.get(lemma));
+            repos.getIndexRepository().saveAndFlush(indexModel);
+        }
     }
 }

@@ -61,7 +61,8 @@ public class IndexingServiceImpl implements IndexingService{
 
             PageData pageData = new PageData(siteModel, url, repos, userAgent);
             Runnable siteIndexing = () -> {
-                if (pageData.pageIndexing()) {
+                if (pageData.connecting()) {
+                    pageData.pageIndexing();
                     forkJoinPool.invoke(new PageDataRecursiveTask(pageData));
                 }
 
@@ -125,20 +126,22 @@ public class IndexingServiceImpl implements IndexingService{
         String path = url.substring(siteModel.getUrl().length());
         PageData pageData = new PageData(siteModel, url, repos, userAgent);
 
+        if (!pageData.connecting()) {
+            response.setResult(false);
+            response.setError("Данная страница не доступна");
+            return response;
+        }
+
         if (!repos.getPageRepository().findPage(siteModel.getUrl(), path).isEmpty()) {
             repos.getPageRepository().deletePage(siteModel.getUrl(), path);
             //todo: +delete index
             //todo: +delete lemma
         }
 
-        if (pageData.pageIndexing()) {
-            response.setResult(true);
-            response.setError("");
-        } else {
-            response.setResult(false);
-            response.setError("Данная страница не доступна");
-        }
+        pageData.pageIndexing();
 
+        response.setResult(true);
+        response.setError("");
         return response;
     }
 
