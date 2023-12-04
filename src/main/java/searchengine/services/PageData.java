@@ -81,7 +81,7 @@ public class PageData {
             if (isValidLink(absLink)) {
                 PageData pageChild = new PageData(siteModel, absLink, repos, userAgent);
                 if (pageChild.connecting()) {
-                    pageIndexing();
+                    pageChild.pageIndexing();
                 }
                 pageChildren.add(pageChild);
             }

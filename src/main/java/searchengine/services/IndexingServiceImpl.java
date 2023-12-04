@@ -7,6 +7,7 @@ import searchengine.config.Site;
 import searchengine.config.SitesList;
 import searchengine.config.UserAgent;
 import searchengine.dto.indexing.IndexingResponse;
+import searchengine.model.LemmaModel;
 import searchengine.model.SiteModel;
 import searchengine.model.SiteStatus;
 
@@ -47,16 +48,9 @@ public class IndexingServiceImpl implements IndexingService{
         siteModelList = new ArrayList<>();
         for (Site site : sites.getSites()) {
             String url = site.getUrl();
+            clearData(url);
 
-            repos.getPageRepository().clearData(url);
-            repos.getSiteRepository().clearData(url);
-
-            SiteModel siteModel = new SiteModel();
-            siteModel.setUrl(url);
-            siteModel.setName(site.getName());
-            siteModel.setStatus(SiteStatus.INDEXING);
-            siteModel.setStatusTime(new Date());
-            repos.getSiteRepository().saveAndFlush(siteModel);
+            SiteModel siteModel = getSiteModel(url);
             siteModelList.add(siteModel);
 
             PageData pageData = new PageData(siteModel, url, repos, userAgent);
@@ -123,32 +117,38 @@ public class IndexingServiceImpl implements IndexingService{
         }
 
         SiteModel siteModel = getSiteModel(url);
+        String mainPage = siteModel.getUrl();
         String path = url.substring(siteModel.getUrl().length());
         PageData pageData = new PageData(siteModel, url, repos, userAgent);
 
-        if (!pageData.connecting()) {
-            response.setResult(false);
-            response.setError("Данная страница не доступна");
-            return response;
+        if (!repos.getPageRepository().findPage(mainPage, path).isEmpty()) {
+            clearPageData(mainPage, path);
         }
 
-        if (!repos.getPageRepository().findPage(siteModel.getUrl(), path).isEmpty()) {
-            repos.getPageRepository().deletePage(siteModel.getUrl(), path);
-            //todo: +delete index
-            //todo: +delete lemma
-        }
-
-        pageData.pageIndexing();
+        Runnable indexing = () -> {
+            if (pageData.connecting()) {
+                pageData.pageIndexing();
+            }
+        };
+        new Thread(indexing).start();
 
         response.setResult(true);
         response.setError("");
         return response;
     }
 
+    private void clearData(String url) {
+        repos.getIndexRepository().clearData(url);
+        repos.getLemmaRepository().clearData(url);
+        repos.getPageRepository().clearData(url);
+        repos.getSiteRepository().clearData(url);
+    }
+
     private SiteModel getSiteModel(String url) {
         SiteModel siteModel = new SiteModel();
         String mainPage = null;
         String name = null;
+
         for (Site site : sites.getSites()) {
             if (url.startsWith(site.getUrl())) {
                 mainPage = site.getUrl();
@@ -176,5 +176,15 @@ public class IndexingServiceImpl implements IndexingService{
             }
         }
         return false;
+    }
+
+    private void clearPageData(String url, String path) {
+        List<LemmaModel> lemmas = repos.getLemmaRepository().getLemmasFromPage(url, path);
+        for (LemmaModel lemma : lemmas) {
+            lemma.setFrequency(lemma.getFrequency() - 1);
+            repos.getLemmaRepository().saveAndFlush(lemma);
+        }
+        repos.getIndexRepository().deleteIndexesFromPage(url, path);
+        repos.getPageRepository().deletePage(url, path);
     }
 }
