@@ -24,4 +24,8 @@ public interface LemmaRepository extends JpaRepository<LemmaModel, Integer> {
             "JOIN page AS p ON p.id = i.page_id JOIN site AS s ON l.site_id = s.id " +
             "WHERE url = :url AND path = :path", nativeQuery = true)
     List<LemmaModel> getLemmasFromPage(String url, String path);
+
+    @Query(value = "SELECT COUNT(*) FROM lemma AS l JOIN site AS s ON l.site_id = s.id " +
+            "WHERE url = :url", nativeQuery = true)
+    int getLemmasAmount(String url);
 }

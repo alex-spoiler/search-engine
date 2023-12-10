@@ -24,4 +24,8 @@ public interface PageRepository extends JpaRepository<PageModel, Integer> {
     @Query(value = "DELETE p FROM page AS p JOIN site AS s ON p.site_id = s.id " +
             "WHERE url = :url AND path = :path", nativeQuery = true)
     void deletePage(String url, String path);
+
+    @Query(value = "SELECT COUNT(*) FROM page AS p JOIN site AS s ON p.site_id = s.id " +
+            "WHERE url = :url", nativeQuery = true)
+    int getPagesAmount(String url);
 }

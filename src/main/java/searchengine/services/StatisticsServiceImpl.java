@@ -8,48 +8,50 @@ import searchengine.dto.statistics.DetailedStatisticsItem;
 import searchengine.dto.statistics.StatisticsData;
 import searchengine.dto.statistics.StatisticsResponse;
 import searchengine.dto.statistics.TotalStatistics;
+import searchengine.model.SiteModel;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
-import java.util.Random;
 
 @Service
 @RequiredArgsConstructor
 public class StatisticsServiceImpl implements StatisticsService {
-
-    private final Random random = new Random();
     private final SitesList sites;
+    private final RepositoryService repos;
 
     @Override
     public StatisticsResponse getStatistics() {
-        String[] statuses = { "INDEXED", "FAILED", "INDEXING" };
-        String[] errors = {
-                "Ошибка индексации: главная страница сайта не доступна",
-                "Ошибка индексации: сайт не доступен",
-                ""
-        };
-
         TotalStatistics total = new TotalStatistics();
         total.setSites(sites.getSites().size());
         total.setIndexing(true);
 
         List<DetailedStatisticsItem> detailed = new ArrayList<>();
-        List<Site> sitesList = sites.getSites();
-        for(int i = 0; i < sitesList.size(); i++) {
-            Site site = sitesList.get(i);
+        for(Site site : sites.getSites()) {
             DetailedStatisticsItem item = new DetailedStatisticsItem();
+            String url = site.getUrl();
             item.setName(site.getName());
-            item.setUrl(site.getUrl());
-            int pages = random.nextInt(1_000);
-            int lemmas = pages * random.nextInt(1_000);
-            item.setPages(pages);
-            item.setLemmas(lemmas);
-            item.setStatus(statuses[i % 3]);
-            item.setError(errors[i % 3]);
-            item.setStatusTime(System.currentTimeMillis() -
-                    (random.nextInt(10_000)));
-            total.setPages(total.getPages() + pages);
-            total.setLemmas(total.getLemmas() + lemmas);
+            item.setUrl(url);
+
+            if (repos.getSiteRepository().findSite(url).isEmpty()) {
+                item.setStatus("—");
+                item.setStatusTime((new Date()).getTime());
+                item.setPages(0);
+                item.setLemmas(0);
+                item.setError("Индексация сайта еще не проводилась");
+            } else {
+                SiteModel siteModel = repos.getSiteRepository().findSite(url).get(0);
+                int pages = repos.getPageRepository().getPagesAmount(url);
+                int lemmas = repos.getLemmaRepository().getLemmasAmount(url);
+                item.setPages(pages);
+                item.setLemmas(lemmas);
+                item.setStatus(siteModel.getStatus().toString());
+                String error = siteModel.getLastError() == null ? "—" : siteModel.getLastError();
+                item.setError(error);
+                item.setStatusTime(siteModel.getStatusTime().getTime());
+                total.setPages(total.getPages() + pages);
+                total.setLemmas(total.getLemmas() + lemmas);
+            }
             detailed.add(item);
         }
 
